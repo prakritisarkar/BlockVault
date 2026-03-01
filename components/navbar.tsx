@@ -5,7 +5,7 @@ import { ConnectButton } from "@rainbow-me/rainbowkit";
 
 export function Navbar() {
     return (
-        <header className="sticky top-0 z-50 w-full bg-[#000000]">
+        <header className="sticky top-0 z-50 w-full bg-black/40 backdrop-blur-md border-b border-white/5">
             <div className="container flex h-20 items-center justify-between px-4 md:px-8 mx-auto max-w-6xl">
 
                 {/* Logo Section */}
