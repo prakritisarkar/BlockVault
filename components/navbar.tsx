@@ -33,14 +33,59 @@ export function Navbar() {
                 {/* Right Side Connect Button wrapper */}
                 <div className="flex flex-1 items-center justify-end">
                     <ConnectButton.Custom>
-                        {({ openConnectModal }) => (
-                            <button
-                                onClick={openConnectModal}
-                                className="px-5 py-2 text-sm font-medium border border-[#333] hidden md:block rounded-xl text-white bg-transparent hover:bg-[#111] transition-colors"
-                            >
-                                Connect
-                            </button>
-                        )}
+                        {({ account, chain, openAccountModal, openChainModal, openConnectModal, mounted }) => {
+                            const ready = mounted;
+                            const connected = ready && account && chain;
+
+                            if (!ready) {
+                                return (
+                                    <button disabled className="px-5 py-2 text-sm font-medium border border-[#333] hidden md:block rounded-xl text-gray-500 bg-transparent cursor-not-allowed">
+                                        Loading...
+                                    </button>
+                                );
+                            }
+
+                            if (!connected) {
+                                return (
+                                    <button
+                                        onClick={openConnectModal}
+                                        className="px-5 py-2 text-sm font-medium border border-[#333] hidden md:block rounded-xl text-white bg-transparent hover:bg-[#111] transition-colors"
+                                    >
+                                        Connect
+                                    </button>
+                                );
+                            }
+
+                            return (
+                                <div className="hidden md:flex items-center gap-2">
+                                    <button
+                                        onClick={openChainModal}
+                                        className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-[#333] rounded-xl text-gray-300 bg-transparent hover:bg-[#111] transition-colors"
+                                    >
+                                        {chain.hasIcon && chain.iconUrl && (
+                                            <img src={chain.iconUrl} alt={chain.name ?? ''} className="w-4 h-4 rounded-full" />
+                                        )}
+                                        {chain.name ?? "Switch"}
+                                    </button>
+                                    <button
+                                        onClick={openAccountModal}
+                                        className="px-4 py-2 text-sm font-medium border border-[#333] rounded-xl text-white bg-transparent hover:bg-[#111] transition-colors"
+                                    >
+                                        {account.displayName}
+                                    </button>
+                                    <Link
+                                        href="/dashboard"
+                                        className="flex items-center justify-center w-9 h-9 border border-[#333] rounded-xl text-gray-300 bg-transparent hover:bg-[#111] transition-colors"
+                                        title="Dashboard"
+                                    >
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <circle cx="12" cy="8" r="4" />
+                                            <path d="M20 21a8 8 0 0 0-16 0" />
+                                        </svg>
+                                    </Link>
+                                </div>
+                            );
+                        }}
                     </ConnectButton.Custom>
                 </div>
 

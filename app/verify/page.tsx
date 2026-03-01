@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
 
 export default function VerifyPage() {
     const [address, setAddress] = useState("");
@@ -17,6 +18,27 @@ export default function VerifyPage() {
     const [verificationData, setVerificationData] = useState<any>(null);
     const [rawLogs, setRawLogs] = useState<string>("");
     const [allTxs, setAllTxs] = useState<any[]>([]);
+    const [polygonSbt, setPolygonSbt] = useState<any>(null);
+    const [algoSbt, setAlgoSbt] = useState<any>(null);
+
+    // Deterministic score helper — NEVER trust the AI's math
+    const getRepays = () => {
+        if (!verificationData) return 0;
+        return Number(verificationData.totalRepays ?? verificationData.repaysToAdd ?? 0);
+    };
+    const getLiquidations = () => {
+        if (!verificationData) return 0;
+        return Math.abs(Number(verificationData.liquidations ?? verificationData.liquidationsToAdd ?? 0));
+    };
+    const getScore = () => (getRepays() * 300) - (getLiquidations() * 500);
+    const getReliabilityLevel = () => {
+        const s = getScore();
+        if (s >= 600) return { label: "HIGH", color: "bg-green-600 text-white" };
+        if (s >= 300) return { label: "MEDIUM", color: "bg-yellow-500 text-black" };
+        if (s > 0)   return { label: "LOW", color: "bg-orange-500 text-white" };
+        if (s === 0) return { label: "NEUTRAL", color: "bg-gray-500 text-white" };
+        return { label: "AT RISK", color: "bg-red-600 text-white" };
+    };
 
     const handleVerify = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -26,74 +48,30 @@ export default function VerifyPage() {
         setProofVisible(false);
 
         try {
-            // 1. Fetch REAL EVM Transactions (Using Free Ethplorer API)
-            const ethplorerRes = await fetch(`https://api.ethplorer.io/getAddressHistory/${address}?apiKey=freekey&limit=${txLimit}`);
-            const ethplorerData = await ethplorerRes.json();
-
-            let evmTxs = [];
-            if (ethplorerData.operations) {
-                evmTxs = ethplorerData.operations.map((tx: any) => ({
-                    hash: tx.transactionHash,
-                    timestamp: new Date(tx.timestamp * 1000).toISOString(),
-                    transfers: [{
-                        to_contract: tx.to,
-                        asset: tx.tokenInfo ? tx.tokenInfo.symbol : "ETH",
-                        value: tx.tokenInfo && tx.tokenInfo.decimals ?
-                               (Number(tx.value) / Math.pow(10, Number(tx.tokenInfo.decimals))).toString() :
-                               tx.value,
-                        category: "erc20"
-                    }]
-                }));
-            }
-
-            // 2. Fetch REAL Algorand Transactions (Dynamically picking an active user to avoid Checksum errors!)
-            let algoTxs = [];
-            try {
-                // Get the latest block's transactions to find a random valid active sender
-                const latestRes = await fetch(`https://mainnet-idx.algonode.cloud/v2/transactions?limit=1`);
-                const latestData = await latestRes.json();
-                const activeAlgoAddress = latestData.transactions[0].sender;
-
-                // Now fetch that specific user's history
-                const algoRes = await fetch(`https://mainnet-idx.algonode.cloud/v2/accounts/${activeAlgoAddress}/transactions?limit=${txLimit}`);
-                const algoData = await algoRes.json();
-                algoTxs = (algoData.transactions || []).map((tx: any) => ({
-                    hash: tx.id,
-                    timestamp: new Date(tx['round-time'] * 1000).toISOString(),
-                    appId: tx['application-transaction'] ? tx['application-transaction']['application-id'] : undefined,
-                    type: tx['tx-type'],
-                    transfers: tx['payment-transaction'] ? [{
-                        to_contract: tx.sender,
-                        asset: "ALGO",
-                        value: (tx['payment-transaction'].amount / 1000000).toString(),
-                        category: "native"
-                    }] : []
-                }));
-            } catch (algoError) {
-                console.warn("Algorand fetch failed, skipping...", algoError);
-            }
-
-            // Combine, sort chronologically (newest first), and slice to strictly respect the user's requested UI limit
-            const combinedTxs = [...evmTxs, ...algoTxs]
-                .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-                .slice(0, Number(txLimit));
-
-            setAllTxs(combinedTxs);
-
-            // 3. Send ONLY the fetched transactions to the backend for Groq AI Evaluation
+            // Send address to backend — it handles ALL transaction fetching via Alchemy + Algorand
             const res = await fetch("http://localhost:3001/api/verify", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ address, transactions: combinedTxs })
+                body: JSON.stringify({ address, limit: txLimit })
             });
 
-            if (!res.ok) throw new Error("API verification failed");
+            if (!res.ok) {
+                toast.error(`Backend returned ${res.status} error.`, { duration: 6000 });
+                throw new Error("API verification failed");
+            }
 
             const result = await res.json();
 
             if (result.success) {
                 setVerificationData(result.data);
                 setRawLogs(result.data.summaryLogs || "Proof Verification Completed: OK");
+                // Capture SBT results
+                if (result.sbt?.polygon) setPolygonSbt(result.sbt.polygon);
+                if (result.sbt?.algorand) setAlgoSbt(result.sbt.algorand);
+                // Use backend-provided transactions for the UI
+                if (result.allFetchedTransactions && result.allFetchedTransactions.length > 0) {
+                    setAllTxs(result.allFetchedTransactions);
+                }
                 setStatus("success");
             } else {
                 throw new Error("API returned failure");
@@ -250,7 +228,7 @@ export default function VerifyPage() {
                                     </div>
                                     <div className="text-right flex flex-col items-end">
                                         <p className="text-sm text-muted-foreground mb-2">Reliability Level</p>
-                                        <Badge className="bg-white text-black font-bold text-sm px-3 py-1 hover:bg-white/90">HIGH</Badge>
+                                        <Badge className={`${getReliabilityLevel().color} font-bold text-sm px-3 py-1`}>{getReliabilityLevel().label}</Badge>
                                     </div>
                                 </CardHeader>
 
@@ -260,18 +238,88 @@ export default function VerifyPage() {
                                     </h3>
 
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                        {[
-                                            { icon: CheckCircle2, text: `${verificationData?.repaysToAdd || 0} Loan repayments verified` },
-                                            { icon: Shield, text: `${verificationData?.liquidationsToAdd || 0} Liquidation events found` },
-                                            { icon: Activity, text: `Score Baseline: ${verificationData?.scoreToMint || 0}` },
-                                            { icon: Clock, text: `Last Block T/S: ${verificationData?.lastUpdatedTimestamp || "N/A"}` }
-                                        ].map((badge, i) => (
-                                            <div key={i} className="flex items-center gap-3 p-4 rounded-xl bg-[#0a0a0a] border border-[#222]">
-                                                <badge.icon className="h-5 w-5 text-gray-400" />
-                                                <span className="text-sm font-medium text-gray-200">{badge.text}</span>
-                                            </div>
-                                        ))}
+                                        <div className="flex items-center gap-3 p-4 rounded-xl bg-[#0a0a0a] border border-[#222]">
+                                            <CheckCircle2 className="h-5 w-5 text-green-400" />
+                                            <span className="text-sm font-medium text-green-400">{getRepays()} Loan repayments verified</span>
+                                        </div>
+                                        <div className="flex items-center gap-3 p-4 rounded-xl bg-[#0a0a0a] border border-[#222]">
+                                            <Shield className="h-5 w-5 text-red-400" />
+                                            <span className="text-sm font-medium text-red-400">{getLiquidations()} Liquidation events found</span>
+                                        </div>
+                                        <div className="flex items-center gap-3 p-4 rounded-xl bg-[#0a0a0a] border border-[#222]">
+                                            <Activity className="h-5 w-5 text-gray-400" />
+                                            <span className="text-sm font-medium text-gray-200">Score Baseline: {getScore()}</span>
+                                        </div>
+                                        <div className="flex items-center gap-3 p-4 rounded-xl bg-[#0a0a0a] border border-[#222]">
+                                            <Clock className="h-5 w-5 text-gray-400" />
+                                            <span className="text-sm font-medium text-gray-200">Last Block T/S: {verificationData?.lastUpdatedTimestamp || "N/A"}</span>
+                                        </div>
                                     </div>
+
+                                    {/* Credit SBT Section */}
+                                    {(polygonSbt || algoSbt) && (
+                                        <div className="mt-8 pt-6 border-t border-border/30">
+                                            <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-white">
+                                                <CheckCircle2 className="text-green-500 h-6 w-6" /> Credit SBT — Minted On-Chain
+                                            </h3>
+                                            <div className="space-y-3">
+                                                {/* Metadata */}
+                                                <div className="p-4 rounded-xl bg-[#0a0a0a] border border-[#222]">
+                                                    <p className="text-xs text-muted-foreground mb-2 uppercase tracking-wider">On-Chain Metadata</p>
+                                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+                                                        <div>
+                                                            <p className="text-muted-foreground">Score</p>
+                                                            <p className="text-white font-bold text-lg">{getScore()}</p>
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-muted-foreground">Repayments</p>
+                                                            <p className="text-green-400 font-bold text-lg">{getRepays()}</p>
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-muted-foreground">Liquidations</p>
+                                                            <p className="text-red-400 font-bold text-lg">{getLiquidations()}</p>
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-muted-foreground">Last Updated</p>
+                                                            <p className="text-gray-300 text-sm">{new Date().toLocaleString()}</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {/* Polygon SBT */}
+                                                {polygonSbt && (
+                                                    <div className="p-4 rounded-xl bg-[#0a0a0a] border border-purple-500/20">
+                                                        <p className="text-xs text-purple-400 mb-2 font-semibold">🟣 Polygon Amoy — {polygonSbt.action === 'mint' ? 'Minted' : 'Updated'}</p>
+                                                        <a
+                                                            href={polygonSbt.explorerUrl}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="text-sm text-purple-300 hover:text-purple-200 hover:underline font-mono break-all flex items-center gap-1"
+                                                        >
+                                                            Tx: {polygonSbt.txHash} <ExternalLink className="w-3 h-3 inline shrink-0" />
+                                                        </a>
+                                                        <p className="text-[10px] text-muted-foreground mt-1">Contract: {polygonSbt.contractAddress} | ERC-721 Soulbound (ERC-5192)</p>
+                                                    </div>
+                                                )}
+
+                                                {/* Algorand SBT */}
+                                                {algoSbt && (
+                                                    <div className="p-4 rounded-xl bg-[#0a0a0a] border border-blue-500/20">
+                                                        <p className="text-xs text-blue-400 mb-2 font-semibold">🔵 Algorand Testnet — Minted (ASA #{algoSbt.assetId})</p>
+                                                        <a
+                                                            href={algoSbt.explorerUrl}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="text-sm text-blue-300 hover:text-blue-200 hover:underline font-mono break-all flex items-center gap-1"
+                                                        >
+                                                            Tx: {algoSbt.txHash} <ExternalLink className="w-3 h-3 inline shrink-0" />
+                                                        </a>
+                                                        <p className="text-[10px] text-muted-foreground mt-1">ARC-69 Standard | Frozen ASA (Soulbound)</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
 
                                     <div className="mt-8 pt-6 border-t border-border/30">
                                         <Button

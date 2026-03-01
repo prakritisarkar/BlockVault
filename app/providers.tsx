@@ -8,13 +8,13 @@ import {
 } from "@rainbow-me/rainbowkit";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WagmiProvider } from "wagmi";
-import { mainnet, sepolia } from "wagmi/chains";
+import { mainnet, sepolia, polygonAmoy, polygon } from "wagmi/chains";
 import "@rainbow-me/rainbowkit/styles.css";
 
 const config = getDefaultConfig({
   appName: "BlockVault",
-  projectId: "YOUR_PROJECT_ID",
-  chains: [mainnet, sepolia],
+  projectId: "b802e0e4b1f91e9f1e07bf208dd50ab1",
+  chains: [polygon, polygonAmoy, mainnet, sepolia],
   ssr: true,
 });
 

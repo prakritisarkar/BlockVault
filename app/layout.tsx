@@ -4,6 +4,7 @@ import "./globals.css";
 import { Providers } from "./providers";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
+import { Toaster } from "sonner";
 import LiquidEther from "@/components/LiquidEther";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
@@ -48,6 +49,7 @@ export default function RootLayout({
             <Navbar />
             <main className="flex-1">{children}</main>
             <Footer />
+            <Toaster position="bottom-left" theme="dark" />
           </div>
         </Providers>
       </body>
