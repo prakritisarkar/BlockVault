@@ -19,8 +19,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
-      <body className={`${inter.variable} min-h-screen bg-background font-sans antialiased text-foreground`}>
+    <html lang="en" className="dark" suppressHydrationWarning>
+      <body className={`${inter.variable} min-h-screen bg-background font-sans antialiased text-foreground`} suppressHydrationWarning>
         <Providers>
           <div className="relative flex min-h-screen flex-col bg-grid-pattern">
             <div className="absolute inset-0 -z-10 pointer-events-none fixed">
